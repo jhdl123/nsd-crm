@@ -1,5 +1,5 @@
 // App shell cache. Data is never cached here (it lives in Supabase and, for offline viewing, in localStorage).
-const CACHE = "nsd-crm-v1";
+const CACHE = "nsd-crm-v2";
 const SHELL = ["./", "index.html", "app.css", "app.js", "config.js", "manifest.webmanifest", "icon.svg", "icon-192.png"];
 self.addEventListener("install", (e) => { e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting())); });
 self.addEventListener("activate", (e) => { e.waitUntil(caches.keys().then((ks) => Promise.all(ks.filter((k) => k !== CACHE).map((k) => caches.delete(k)))).then(() => self.clients.claim())); });

@@ -27,9 +27,9 @@ const get = (o, path) => path.split(".").reduce((x, p) => (x == null ? x : x[p])
 const live = (r) => !r.archived_at;
 
 /* ---------- state ---------- */
-const TABLES = ["options", "companies", "contacts", "lead_details", "partner_details", "client_details", "deals", "invoices", "activities", "tasks", "projects", "content", "content_channels", "channels", "day_blocks"];
+const TABLES = ["options", "companies", "contacts", "lead_details", "partner_details", "client_details", "deals", "invoices", "activities", "tasks", "projects", "content", "content_channels", "channels", "day_blocks", "day_notes"];
 const T = {}; // raw rows per table
-const X = { co: new Map(), contact: new Map(), deal: new Map(), inv: new Map(), task: new Map(), act: new Map(), proj: new Map(), content: new Map(), chan: new Map(), block: new Map() };
+const X = { co: new Map(), contact: new Map(), deal: new Map(), inv: new Map(), task: new Map(), act: new Map(), proj: new Map(), content: new Map(), chan: new Map(), block: new Map(), day: new Map() };
 let OPT = {};
 const S = {
   view: "today", user: null, loaded: false, fresh: null, offline: !navigator.onLine,
@@ -61,6 +61,7 @@ const FIELDS = {
   content: [F("status", "s", "Status", "content_status"), F("format", "s", "Format", "content_format"), F("publish_date", "d"), F("target_keyword", "t"), F("link", "u"), F("utm_content", "t", "UTM content"), F("brief", "ta"), F("body", "ta", "Page notes")],
   project: [F("status", "s", "Status", "project_status"), F("type", "s", "Type", "project_type"), F("priority", "s", "Priority", "priority"), F("start_date", "d"), F("end_date", "d"), F("budget", "n"), F("utm_campaign", "t", "UTM campaign"), F("goal", "ta"), F("body", "ta", "Page notes")],
   block: [F("status", "s", "Status", "block_status"), F("focus", "s", "Focus", "focus"), F("starts_at", "dt", "Starts"), F("ends_at", "dt", "Ends"), F("output", "t"), F("notes", "ta")],
+  day: [F("day", "d", "Date"), F("yesterday_review", "ta", "Yesterday in review"), F("plan", "ta", "Plan"), F("waiting_on", "ta", "Waiting on replies"), F("evening_build", "ta", "Evening build"), F("review", "ta", "End-of-day review")],
 };
 const KIND = {
   company: { table: "companies", title: "name", label: "Company", map: "co" },
@@ -72,6 +73,7 @@ const KIND = {
   content: { table: "content", title: "title", label: "Content", map: "content" },
   project: { table: "projects", title: "name", label: "Project", map: "proj" },
   block: { table: "day_blocks", title: "title", label: "Day block", map: "block" },
+  day: { table: "day_notes", title: "focus", label: "Day note", map: "day" },
 };
 const ROLE = {
   lead: { table: "lead_details", label: "Lead", closed: ["Won", "Lost", "Nurture"], opt: "lead_stage", start: "New" },
@@ -123,7 +125,7 @@ function index() {
   for (const o of (T.options || []).filter((o) => o.active).sort((a, b) => a.sort - b.sort)) (OPT[o.field] ||= []).push({ n: o.value, c: o.colour });
   const by = (arr) => new Map((arr || []).filter(live).map((r) => [r.id, r]));
   X.co = by(T.companies); X.contact = by(T.contacts); X.deal = by(T.deals); X.inv = by(T.invoices); X.task = by(T.tasks);
-  X.act = by(T.activities); X.proj = by(T.projects); X.content = by(T.content); X.chan = by(T.channels); X.block = by(T.day_blocks);
+  X.act = by(T.activities); X.proj = by(T.projects); X.content = by(T.content); X.chan = by(T.channels); X.block = by(T.day_blocks); X.day = by(T.day_notes || []);
   for (const c of X.co.values()) Object.assign(c, { lead: null, partner: null, client: null, people: [], tasks: [], acts: [], deals: [] });
   for (const [role, cfg] of Object.entries(ROLE)) for (const d of T[cfg.table] || []) { const c = X.co.get(d.company_id); if (c) c[role] = d; }
   for (const p of X.contact.values()) { const c = X.co.get(p.company_id); if (c) c.people.push(p); }
@@ -248,7 +250,7 @@ function vToday() {
     <section class="panel"><h2>Next 7 days <span class="n">${up.length}</span></h2>${up.length ? up.map(attnRow).join("") : '<div class="empty">Nothing scheduled for the coming week.</div>'}</section>
     <section class="panel"><h2>Gone quiet <span class="n">${quiet.length}</span><span class="r tag">active lead, no open task, 10+ days</span></h2>${quiet.length ? quiet.slice(0, 10).map((c) => `<div class="row click" ${openAttr("company", c.id)}><span class="stripe"></span><div class="main-t"><div class="t">${esc(c.name)}</div><div class="s">${chip("lead_stage", c.lead.stage)} ${esc(c.primary?.name || "")}</div></div><span class="when">${c.last_contacted ? esc(rel(c.last_contacted)) : "never"}</span></div>`).join("") + (quiet.length > 10 ? `<div class="empty">and ${quiet.length - 10} more.</div>` : "") : '<div class="empty">Every active lead has a next step.</div>'}</section>
   </div><div class="grid">
-    <section class="panel"><h2>Today's plan <span class="n">${blocks.length}</span><span class="r"><a href="#planner">Week</a></span></h2>${blocks.length ? blocks.map((b) => `<div class="row click" ${openAttr("block", b.id)}><span class="stripe"></span><div class="main-t"><div class="t">${esc(b.title)}</div><div class="s">${chip("focus", b.focus)} ${esc(b.output || "")}</div></div><span class="when">${fmtTime(b.starts_at)}</span>${chip("block_status", b.status)}</div>`).join("") : '<div class="empty">No day blocks today.</div>'}</section>
+    <section class="panel"><h2>Today's plan <span class="n">${blocks.length}</span><span class="r">${(() => { const n = [...X.day.values()].find((d) => d.day === today()); return n ? `<button class="linkish" type="button" ${openAttr("day", n.id)}>Day note</button> · ` : ""; })()}<a href="#planner">Week</a></span></h2>${blocks.length ? blocks.map((b) => `<div class="row click" ${openAttr("block", b.id)}><span class="stripe"></span><div class="main-t"><div class="t">${esc(b.title)}</div><div class="s">${chip("focus", b.focus)} ${esc(b.output || "")}</div></div><span class="when">${fmtTime(b.starts_at)}</span>${chip("block_status", b.status)}</div>`).join("") : '<div class="empty">No day blocks today.</div>'}</section>
     <section class="panel"><h2>Recent activity</h2>${recent.length ? recent.map((a) => `<div class="row click" ${openAttr("act", a.id)}><span class="stripe"></span><div class="main-t"><div class="t">${esc(a.subject)}</div><div class="s">${chip("activity_type", a.type)} ${chip("outcome", a.outcome)} ${esc(X.co.get(a.company_id)?.name || "")}</div></div><span class="when">${esc(rel(a.occurred_on))}</span></div>`).join("") : '<div class="empty">No activities yet.</div>'}</section>
   </div></div></div>`;
 }
@@ -407,9 +409,10 @@ function vPlanner() {
   if (!S.weekStart) S.weekStart = mondayOf(today());
   const days = Array.from({ length: 7 }, (_, i) => addDays(S.weekStart, i)), t = today();
   const head = `<div class="toolbar"><button class="btn sm" type="button" data-week="-7" aria-label="Previous week">←</button><button class="btn sm" type="button" data-week="0">This week</button><button class="btn sm" type="button" data-week="7" aria-label="Next week">→</button><b style="margin-left:6px">${esc(fmtDate(days[0]))} – ${esc(fmtDate(days[6]))}</b><span style="margin-left:auto"></span><button class="btn sm" type="button" data-new="block">+ Day block</button></div>
-  <div class="legend"><span><i style="background:var(--c-purple-i)"></i>Day block</span><span><i style="background:var(--accent)"></i>Task</span><span><i style="background:var(--warn)"></i>Audit due</span><span><i style="background:var(--c-pink-i)"></i>Content</span></div>`;
+  <div class="legend"><span><i style="background:var(--c-purple-i)"></i>Day block</span><span><i style="background:var(--accent)"></i>Task</span><span><i style="background:var(--warn)"></i>Audit due</span><span><i style="background:var(--c-pink-i)"></i>Content</span><span><i style="background:var(--c-green-i)"></i>Day note</span></div>`;
   const by = {}; for (const d of days) by[d] = [];
   const put = (d, html, sort) => { if (d && by[d]) by[d].push({ html, sort }); };
+  for (const n of X.day.values()) put(n.day, `<div class="pi note" ${openAttr("day", n.id)}><span class="tm">Day note${n.review ? " · reviewed" : ""}</span>${esc(n.focus || "Plan and review")}</div>`, "0");
   for (const b of X.block.values()) if (b.starts_at) put(localISO(new Date(b.starts_at)), `<div class="pi block ${b.status === "Done" ? "done" : ""}" ${openAttr("block", b.id)}><span class="tm">${fmtTime(b.starts_at)}${b.ends_at ? "–" + fmtTime(b.ends_at) : ""}</span>${esc(b.title)}</div>`, "1" + b.starts_at);
   for (const x of X.task.values()) put(x.due_date, `<div class="pi task ${x.status === "Done" ? "done" : ""}" ${openAttr("task", x.id)}>${x.due_time ? `<span class="tm">${esc(String(x.due_time).slice(0, 5))}</span>` : ""}${esc(x.title)}${linkName(x) ? `<span class="tm">${esc(linkName(x))}</span>` : ""}</div>`, "2" + (x.due_time || ""));
   for (const c of X.co.values()) if (c.lead?.stage === "Audit requested") put(c.lead.audit_due, `<div class="pi next" ${openAttr("company", c.id)}><span class="tm">Audit due</span>${esc(c.name)}</div>`, "3");
